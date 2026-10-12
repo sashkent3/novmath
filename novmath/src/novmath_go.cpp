@@ -1,189 +1,165 @@
 #include <dmsdk/sdk.h>
-#include <dmsdk/gui/gui.h>
-#include "external/dm_vmath.h"
+#include "novmath_common.h"
 
-static inline dmVMath::Vector3
-CheckV3R(lua_State *L, int index)
-{
-    lua_Number x = luaL_checknumber(L, index);
-    lua_Number y = luaL_checknumber(L, index + 1);
-    lua_Number z = luaL_checknumber(L, index + 2);
-    return dmVMath::Vector3(x, y, z);
-}
+typedef dmGameObject::HInstance Instance;
+typedef dmVMath::Vector3 (*GoGetFn)(Instance);
+typedef void (*GoSetFn)(Instance, const dmVMath::Vector3 &);
 
-static inline int
-PushV3R(lua_State *L, const dmVMath::Vector3 &v)
-{
-    lua_pushnumber(L, v.getX());
-    lua_pushnumber(L, v.getY());
-    lua_pushnumber(L, v.getZ());
-    return 3;
-}
-
-static inline dmVMath::Vector3
-CheckV3T(lua_State *L, int index)
-{
-    lua_getfield(L, index, "x");
-    lua_getfield(L, index, "y");
-    lua_getfield(L, index, "z");
-
-    lua_Number x = luaL_checknumber(L, -3);
-    lua_Number y = luaL_checknumber(L, -2);
-    lua_Number z = luaL_checknumber(L, -1);
-
-    lua_pop(L, 3);
-    return dmVMath::Vector3(x, y, z);
-}
-
-static inline int
-PushV3T(lua_State *L, int index, const dmVMath::Vector3 &v)
-{
-    lua_pushnumber(L, v.getX());
-    lua_setfield(L, index, "x");
-    lua_pushnumber(L, v.getY());
-    lua_setfield(L, index, "y");
-    lua_pushnumber(L, v.getZ());
-    lua_setfield(L, index, "z");
-    return 0;
-}
-
-static inline dmVMath::Vector3
-QuatToEuler(dmVMath::Quat q)
+static dmVMath::Vector3 QuatToEuler(const dmVMath::Quat &q)
 {
     return dmVMath::QuatToEuler(q.getX(), q.getY(), q.getZ(), q.getW());
 }
 
-#define GO_GET_POSITION(instance) dmVMath::Vector3(dmGameObject::GetPosition(instance))
-#define GO_SET_POSITION(instance, position) dmGameObject::SetPosition(instance, dmVMath::Point3(position))
-#define GO_GET_SCALE(instance) dmGameObject::GetScale(instance)
-#define GO_SET_SCALE(instance, scale) dmGameObject::SetScale(instance, scale)
-#define GO_GET_EULER(instance) QuatToEuler(dmGameObject::GetRotation(instance))
-#define GO_SET_EULER(instance, rotation) dmGameObject::SetRotation(instance, dmVMath::EulerToQuat(rotation))
+static dmVMath::Vector3 GetPosition(Instance i) { return dmVMath::Vector3(dmGameObject::GetPosition(i)); }
+static void SetPosition(Instance i, const dmVMath::Vector3 &v) { dmGameObject::SetPosition(i, dmVMath::Point3(v)); }
+static dmVMath::Vector3 GetScale(Instance i) { return dmGameObject::GetScale(i); }
+static void SetScale(Instance i, const dmVMath::Vector3 &v) { dmGameObject::SetScale(i, v); }
+static dmVMath::Vector3 GetEuler(Instance i) { return QuatToEuler(dmGameObject::GetRotation(i)); }
+static void SetEuler(Instance i, const dmVMath::Vector3 &v) { dmGameObject::SetRotation(i, dmVMath::EulerToQuat(v)); }
+static dmVMath::Vector3 GetWorldPosition(Instance i) { return dmVMath::Vector3(dmGameObject::GetWorldPosition(i)); }
+static dmVMath::Vector3 GetWorldScale(Instance i) { return dmGameObject::GetWorldScale(i); }
+static dmVMath::Vector3 GetWorldEuler(Instance i) { return QuatToEuler(dmGameObject::GetWorldRotation(i)); }
 
-#define GO_GET_WORLD_POSITION(instance) dmVMath::Vector3(dmGameObject::GetWorldPosition(instance))
-#define GO_GET_WORLD_SCALE(instance) dmGameObject::GetWorldScale(instance)
-#define GO_GET_WORLD_EULER(instance) QuatToEuler(dmGameObject::GetWorldRotation(instance))
+static int GoGetR(lua_State *L, GoGetFn get)
+{
+    return PushV3R(L, get(dmScript::CheckGOInstance(L, 1)));
+}
 
-#define GUI_GET_WORLD_POSITION(instance) dmGui
-#define GUI_GET_WORLD_SCALE(instance) dmGameObject::GetWorldScale(instance)
-#define GUI_GET_WORLD_EULER(instance) Quat
+static int GoGetT(lua_State *L, GoGetFn get)
+{
+    Instance instance = dmScript::CheckGOInstance(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    return PushV3T(L, 2, get(instance));
+}
 
-#define GO_GET_PROP_R(propertyname, get_prop)                               \
-    int GO_Get##propertyname##R(lua_State *L)                               \
-    {                                                                       \
-        dmGameObject::Instance *instance = dmScript::CheckGOInstance(L, 1); \
-        dmVMath::Vector3 value = get_prop(instance);                        \
-        return PushV3R(L, value);                                           \
-    }
+static int GoGetN(lua_State *L, GoGetFn get, int n)
+{
+    lua_pushnumber(L, get(dmScript::CheckGOInstance(L, 1)).getElem(n));
+    return 1;
+}
 
-#define GO_SET_PROP_R(propertyname, set_prop)                               \
-    int GO_Set##propertyname##R(lua_State *L)                               \
-    {                                                                       \
-        dmGameObject::Instance *instance = dmScript::CheckGOInstance(L, 1); \
-        dmVMath::Vector3 value = CheckV3R(L, 2);                            \
-        set_prop(instance, value);                                          \
-        return 0;                                                           \
-    }
+static int GoSetR(lua_State *L, GoSetFn set)
+{
+    set(dmScript::CheckGOInstance(L, 1), CheckV3R(L, 2));
+    return 0;
+}
 
-#define GO_GET_PROP_T(propertyname, get_prop)                               \
-    int GO_Get##propertyname##T(lua_State *L)                               \
-    {                                                                       \
-        dmGameObject::Instance *instance = dmScript::CheckGOInstance(L, 1); \
-        dmVMath::Vector3 value = get_prop(instance);                        \
-        return PushV3T(L, 2, value);                                        \
-    }
+static int GoSetT(lua_State *L, GoSetFn set)
+{
+    set(dmScript::CheckGOInstance(L, 1), CheckV3T(L, 2));
+    return 0;
+}
 
-#define GO_SET_PROP_T(propertyname, set_prop)                               \
-    int GO_Set##propertyname##T(lua_State *L)                               \
-    {                                                                       \
-        dmGameObject::Instance *instance = dmScript::CheckGOInstance(L, 1); \
-        dmVMath::Vector3 value = CheckV3T(L, 2);                            \
-        set_prop(instance, value);                                          \
-        return 0;                                                           \
-    }
+static int GoSetN(lua_State *L, GoGetFn get, GoSetFn set, int n)
+{
+    Instance instance = dmScript::CheckGOInstance(L, 1);
+    dmVMath::Vector3 v = get(instance);
+    v.setElem(n, luaL_checknumber(L, 2));
+    set(instance, v);
+    return 0;
+}
 
-#define GO_GET_PROP_N(propertyname, n, get_prop)                            \
-    int GO_Get##propertyname##n(lua_State *L)                               \
-    {                                                                       \
-        dmGameObject::Instance *instance = dmScript::CheckGOInstance(L, 1); \
-        lua_Number value = get_prop(instance).get##n();                     \
-        lua_pushnumber(L, value);                                           \
-        return 1;                                                           \
-    }
+// Readable properties: X(lua_name, Name)
+#define GO_GET_PROPS(X)               \
+    X(position, Position)             \
+    X(scale, Scale)                   \
+    X(euler, Euler)                   \
+    X(world_position, WorldPosition)  \
+    X(world_scale, WorldScale)        \
+    X(world_euler, WorldEuler)
 
-#define GO_SET_PROP_N(propertyname, n, get_prop, set_prop)                  \
-    int GO_Set##propertyname##n(lua_State *L)                               \
-    {                                                                       \
-        dmGameObject::Instance *instance = dmScript::CheckGOInstance(L, 1); \
-        lua_Number value = luaL_checknumber(L, 2);                          \
-        dmVMath::Vector3 temp = get_prop(instance);                         \
-        temp.set##n(value);                                                 \
-        set_prop(instance, temp);                                           \
-        return 0;                                                           \
-    }
+// Writable properties
+#define GO_SET_PROPS(X) \
+    X(position, Position) \
+    X(scale, Scale)       \
+    X(euler, Euler)
 
-GO_GET_PROP_R(Position, GO_GET_POSITION)
-GO_SET_PROP_R(Position, GO_SET_POSITION)
-GO_GET_PROP_T(Position, GO_GET_POSITION)
-GO_SET_PROP_T(Position, GO_SET_POSITION)
-GO_GET_PROP_N(Position, X, GO_GET_POSITION)
-GO_SET_PROP_N(Position, X, GO_GET_POSITION, GO_SET_POSITION)
-GO_GET_PROP_N(Position, Y, GO_GET_POSITION)
-GO_SET_PROP_N(Position, Y, GO_GET_POSITION, GO_SET_POSITION)
-GO_GET_PROP_N(Position, Z, GO_GET_POSITION)
-GO_SET_PROP_N(Position, Z, GO_GET_POSITION, GO_SET_POSITION)
+#define GO_DEFINE_GET(lua_name, Name)                                               \
+    static int GO_Get##Name##R(lua_State *L) { return GoGetR(L, Get##Name); }       \
+    static int GO_Get##Name##T(lua_State *L) { return GoGetT(L, Get##Name); }       \
+    static int GO_Get##Name##X(lua_State *L) { return GoGetN(L, Get##Name, 0); }    \
+    static int GO_Get##Name##Y(lua_State *L) { return GoGetN(L, Get##Name, 1); }    \
+    static int GO_Get##Name##Z(lua_State *L) { return GoGetN(L, Get##Name, 2); }
 
-GO_GET_PROP_R(Scale, GO_GET_SCALE)
-GO_SET_PROP_R(Scale, GO_SET_SCALE)
-GO_GET_PROP_T(Scale, GO_GET_SCALE)
-GO_SET_PROP_T(Scale, GO_SET_SCALE)
-GO_GET_PROP_N(Scale, X, GO_GET_SCALE)
-GO_SET_PROP_N(Scale, X, GO_GET_SCALE, GO_SET_SCALE)
-GO_GET_PROP_N(Scale, Y, GO_GET_SCALE)
-GO_SET_PROP_N(Scale, Y, GO_GET_SCALE, GO_SET_SCALE)
-GO_GET_PROP_N(Scale, Z, GO_GET_SCALE)
-GO_SET_PROP_N(Scale, Z, GO_GET_SCALE, GO_SET_SCALE)
+#define GO_DEFINE_SET(lua_name, Name)                                                         \
+    static int GO_Set##Name##R(lua_State *L) { return GoSetR(L, Set##Name); }                 \
+    static int GO_Set##Name##T(lua_State *L) { return GoSetT(L, Set##Name); }                 \
+    static int GO_Set##Name##X(lua_State *L) { return GoSetN(L, Get##Name, Set##Name, 0); }   \
+    static int GO_Set##Name##Y(lua_State *L) { return GoSetN(L, Get##Name, Set##Name, 1); }   \
+    static int GO_Set##Name##Z(lua_State *L) { return GoSetN(L, Get##Name, Set##Name, 2); }
 
-GO_GET_PROP_R(Euler, GO_GET_EULER)
-GO_SET_PROP_R(Euler, GO_SET_EULER)
-GO_GET_PROP_T(Euler, GO_GET_EULER)
-GO_SET_PROP_T(Euler, GO_SET_EULER)
-GO_GET_PROP_N(Euler, X, GO_GET_EULER)
-GO_SET_PROP_N(Euler, X, GO_GET_EULER, GO_SET_EULER)
-GO_GET_PROP_N(Euler, Y, GO_GET_EULER)
-GO_SET_PROP_N(Euler, Y, GO_GET_EULER, GO_SET_EULER)
-GO_GET_PROP_N(Euler, Z, GO_GET_EULER)
-GO_SET_PROP_N(Euler, Z, GO_GET_EULER, GO_SET_EULER)
+#define GO_REGISTER(prefix, Prefix, lua_name, Name)      \
+    {#prefix "_" #lua_name "_r", GO_##Prefix##Name##R}, \
+    {#prefix "_" #lua_name "_t", GO_##Prefix##Name##T}, \
+    {#prefix "_" #lua_name "_x", GO_##Prefix##Name##X}, \
+    {#prefix "_" #lua_name "_y", GO_##Prefix##Name##Y}, \
+    {#prefix "_" #lua_name "_z", GO_##Prefix##Name##Z},
 
-GO_GET_PROP_R(WorldPosition, GO_GET_WORLD_POSITION)
-GO_GET_PROP_T(WorldPosition, GO_GET_WORLD_POSITION)
-GO_GET_PROP_N(WorldPosition, X, GO_GET_WORLD_POSITION)
-GO_GET_PROP_N(WorldPosition, Y, GO_GET_WORLD_POSITION)
-GO_GET_PROP_N(WorldPosition, Z, GO_GET_WORLD_POSITION)
+#define GO_REGISTER_GET(lua_name, Name) GO_REGISTER(get, Get, lua_name, Name)
+#define GO_REGISTER_SET(lua_name, Name) GO_REGISTER(set, Set, lua_name, Name)
 
-GO_GET_PROP_R(WorldScale, GO_GET_WORLD_SCALE)
-GO_GET_PROP_T(WorldScale, GO_GET_WORLD_SCALE)
-GO_GET_PROP_N(WorldScale, X, GO_GET_WORLD_SCALE)
-GO_GET_PROP_N(WorldScale, Y, GO_GET_WORLD_SCALE)
-GO_GET_PROP_N(WorldScale, Z, GO_GET_WORLD_SCALE)
+GO_GET_PROPS(GO_DEFINE_GET)
+GO_SET_PROPS(GO_DEFINE_SET)
 
-GO_GET_PROP_R(WorldEuler, GO_GET_WORLD_EULER)
-GO_GET_PROP_T(WorldEuler, GO_GET_WORLD_EULER)
-GO_GET_PROP_N(WorldEuler, X, GO_GET_WORLD_EULER)
-GO_GET_PROP_N(WorldEuler, Y, GO_GET_WORLD_EULER)
-GO_GET_PROP_N(WorldEuler, Z, GO_GET_WORLD_EULER)
+// Rotation (quaternion)
 
-#undef GO_GET_POSITION
-#undef GO_SET_POSITION
-#undef GO_GET_SCALE
-#undef GO_SET_SCALE
-#undef GO_GET_EULER
-#undef GO_SET_EULER
+static int GO_GetRotationR(lua_State *L)
+{
+    return PushV4R(L, dmVMath::Vector4(dmGameObject::GetRotation(dmScript::CheckGOInstance(L, 1))));
+}
 
-#undef GO_GET_WORLD_POSITION
-#undef GO_GET_WORLD_SCALE
-#undef GO_GET_WORLD_EULER
+static int GO_SetRotationR(lua_State *L)
+{
+    dmGameObject::SetRotation(dmScript::CheckGOInstance(L, 1), dmVMath::Quat(CheckV4R(L, 2)));
+    return 0;
+}
 
-#undef GO_PROP_R
-#undef GO_PROP_T
-#undef GO_PROP_N
+static int GO_GetRotationT(lua_State *L)
+{
+    Instance instance = dmScript::CheckGOInstance(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    return PushV4T(L, 2, dmVMath::Vector4(dmGameObject::GetRotation(instance)));
+}
+
+static int GO_SetRotationT(lua_State *L)
+{
+    dmGameObject::SetRotation(dmScript::CheckGOInstance(L, 1), dmVMath::Quat(CheckV4TStrict(L, 2)));
+    return 0;
+}
+
+static int GO_GetWorldRotationR(lua_State *L)
+{
+    return PushV4R(L, dmVMath::Vector4(dmGameObject::GetWorldRotation(dmScript::CheckGOInstance(L, 1))));
+}
+
+static int GO_GetWorldRotationT(lua_State *L)
+{
+    Instance instance = dmScript::CheckGOInstance(L, 1);
+    luaL_checktype(L, 2, LUA_TTABLE);
+    return PushV4T(L, 2, dmVMath::Vector4(dmGameObject::GetWorldRotation(instance)));
+}
+
+// Generic properties, forwarded to the engine
+
+static int GO_SetR(lua_State *L) { return NovmathForwardSetR(L, ENGINE_GO_SET); }
+static int GO_SetT(lua_State *L) { return NovmathForwardSetT(L, ENGINE_GO_SET); }
+static int GO_GetR(lua_State *L) { return NovmathForwardGetR(L, ENGINE_GO_GET); }
+static int GO_GetT(lua_State *L) { return NovmathForwardGetT(L, ENGINE_GO_GET); }
+// go.animate_t(url, property, playback, to, easing, duration, [delay], [complete_function])
+static int GO_AnimateT(lua_State *L) { return NovmathForwardAnimateT(L, ENGINE_GO_ANIMATE, 4); }
+
+const luaL_reg NovmathGoFunctions[] = {
+    GO_GET_PROPS(GO_REGISTER_GET)
+    GO_SET_PROPS(GO_REGISTER_SET)
+    {"get_rotation_r", GO_GetRotationR},
+    {"set_rotation_r", GO_SetRotationR},
+    {"get_rotation_t", GO_GetRotationT},
+    {"set_rotation_t", GO_SetRotationT},
+    {"get_world_rotation_r", GO_GetWorldRotationR},
+    {"get_world_rotation_t", GO_GetWorldRotationT},
+    {"set_r", GO_SetR},
+    {"set_t", GO_SetT},
+    {"get_r", GO_GetR},
+    {"get_t", GO_GetT},
+    {"animate_t", GO_AnimateT},
+    {0, 0}};

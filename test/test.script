@@ -1,3 +1,6 @@
+go.property("test_vector", vmath.vector4(1, 2, 3, 4))
+go.property("test_quat", vmath.quat())
+
 local time = 0
 
 -- Helper function to check if values are approximately equal
@@ -146,6 +149,60 @@ local function test_world_getters(url, vec_in)
 	assert(is_equal(scale_z_values), "World Scale Z values differ: " .. format_values(scale_z_values))
 end
 
+-- Test function for quaternion rotation
+local function test_quat_rotation(url, vec_in)
+	go.set_euler_t(url, vec_in)
+	local x, y, z, w = go.get_rotation_r(url)
+	local q_out = { x = 0, y = 0, z = 0, w = 0 }
+	go.get_rotation_t(url, q_out)
+
+	go.set_rotation_r(url, x, y, z, w)
+	local x2, y2, z2, w2 = go.get_rotation_r(url)
+	go.set_rotation_t(url, q_out)
+	local wx, wy, wz, ww = go.get_world_rotation_r(url)
+
+	assert(is_equal({ x, q_out.x, x2, wx }), "Rotation X values differ")
+	assert(is_equal({ z, q_out.z, z2, wz }), "Rotation Z values differ")
+	assert(is_equal({ w, q_out.w, w2, ww }), "Rotation W values differ")
+end
+
+-- Test function for the generic go.set/go.get wrappers
+local function test_generic(url, vec_in)
+	go.set_t(url, "position", vec_in)
+	local x, y, z = go.get_r(url, "position")
+	go.set_r(url, "position", 1, 2, 3)
+	local out = { x = 0, y = 0, z = 0 }
+	go.get_t(url, "position", out)
+	go.set_r(url, "position.x", vec_in.x)
+
+	assert(is_equal({ vec_in.x, x, go.get_position_x(url) }), "go.set_t/get_r X values differ")
+	assert(is_equal({ vec_in.z, z }), "go.set_t/get_r Z values differ")
+	assert(is_equal({ 2, out.y }), "go.set_r/get_t Y values differ")
+
+	local q = { x = 0, y = 0, z = 0, w = 1 }
+	go.set_t(url, "rotation", q)
+	local _, _, _, w = go.get_r(url, "rotation")
+	assert(is_equal({ 1, w }), "go.set_t rotation W differs")
+end
+
+-- Script properties and engine values, without vmath on the Lua side
+local function test_script_properties()
+	local x, y, z, w = go.get_r("#test", "test_vector")
+	assert(w == 4, "go.get_r on script vector4 property")
+	go.set_t("#test", "test_vector", { x = 5, y = 6, z = 7, w = 8 })
+	local out = {}
+	go.get_t("#test", "test_vector", out)
+	assert(out.w == 8, "go.set_t/get_t on script vector4 property")
+
+	go.set_t("#test", "test_quat", { x = 0, y = 0, z = 0, w = 1, quat = true })
+	local _, _, _, qw = go.get_r("#test", "test_quat")
+	assert(is_equal({ 1, qw }), "go.set_t on script quat property")
+
+	local message = novmath.plain({ position = vmath.vector3(1, 2, 3), nested = { normal = vmath.vector4(0, 1, 0, 0) } })
+	assert(type(message.position) == "table" and message.position.z == 3, "novmath.plain vector3")
+	assert(type(message.nested.normal) == "table" and message.nested.normal.y == 1, "novmath.plain nested vector4")
+end
+
 function update(self, dt)
 	time = time + dt
 
@@ -157,4 +214,7 @@ function update(self, dt)
 	test_scale(url, vec_in)
 	test_rotation(url, vec_in)
 	test_world_getters(url, vec_in)
+	test_quat_rotation(url, vec_in)
+	test_generic(url, vec_in)
+	test_script_properties()
 end

@@ -1,0 +1,63 @@
+local function is_equal(values, tolerance)
+	tolerance = tolerance or 0.05
+	local a = values[1]
+	for _, b in ipairs(values) do
+		if math.abs(a - b) > tolerance then
+			return false
+		end
+	end
+	return true
+end
+
+function init(self)
+	self.node = gui.new_box_node_t({ x = 10, y = 20, z = 0 }, { x = 100, y = 50, z = 0 })
+	self.text = gui.new_text_node_r(0, 0, 0, "novmath")
+	assert(is_equal({ 50, gui.get_size_y(self.node) }), "new_box_node_t size differs")
+end
+
+function update(self, dt)
+	local node = self.node
+
+	-- Position
+	gui.set_position_r(node, 1, 2, 3)
+	local x, y, z = gui.get_position_r(node)
+	gui.set_position_y(node, 5)
+	local p = { x = 0, y = 0, z = 0 }
+	gui.get_position_t(node, p)
+	assert(is_equal({ 1, x, p.x }) and is_equal({ 5, p.y }), "GUI position differs")
+
+	-- Color keeps alpha when w is omitted
+	gui.set_color_r(node, 0.1, 0.2, 0.3, 0.4)
+	gui.set_color_t(node, { x = 1, y = 1, z = 1 })
+	local _, _, _, a = gui.get_color_r(node)
+	assert(is_equal({ 0.4, a, gui.get_color_w(node) }), "GUI color alpha differs")
+	gui.set_color_w(node, 1)
+	assert(is_equal({ 1, gui.get(node, "color.w") }), "GUI set_color_w differs")
+
+	-- Size and scale
+	gui.set_size_t(node, { x = 200, y = 80, z = 0 })
+	gui.set_scale_r(node, 2, 2, 1)
+	assert(is_equal({ 200, gui.get_size_x(node) }), "GUI size differs")
+	assert(is_equal({ 2, gui.get_scale_y(node) }), "GUI scale differs")
+
+	-- Euler and rotation stay in sync
+	gui.set_euler_z(node, 90)
+	local qx, qy, qz, qw = gui.get_rotation_r(node)
+	assert(is_equal({ 0.7071, qz, qw }, 0.01), "GUI rotation after set_euler_z differs")
+	gui.set_rotation_r(node, 0, 0, 0, 1)
+	assert(is_equal({ 0, gui.get_euler_z(node) }), "GUI euler after set_rotation_r differs")
+
+	-- Generic and engine-forwarded functions
+	gui.set_r(node, "position", 7, 8, 9)
+	gui.set_r(node, "position.x", 6)
+	local gx, gy = gui.get_r(node, "position")
+	assert(is_equal({ 6, gx }) and is_equal({ 8, gy }), "GUI set_r/get_r differs")
+
+	gui.set_screen_position_r(node, 100, 100, 0)
+	local sx, sy = gui.get_screen_position_r(node)
+	assert(is_equal({ 100, sx, sy }), "GUI screen position differs")
+	local lx, ly = gui.screen_to_local_r(node, 100, 100, 0)
+	assert(lx and ly, "GUI screen_to_local_r failed")
+
+	gui.animate_t(self.text, "color", { x = 1, y = 1, z = 1, w = 0 }, gui.EASING_LINEAR, 1)
+end
